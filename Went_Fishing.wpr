@@ -22,7 +22,10 @@ proj.directory-list = [{'dirloc': loc('UI_Files'),
                         'include_hidden': False,
                         'recursive': True,
                         'watch_for_changes': True}]
-proj.file-list = [loc('main.py'),
-                  loc('run.bat')]
+proj.file-list = [loc('.gitignore'),
+                  loc('main.py'),
+                  loc('requirements.txt'),
+                  loc('run.bat'),
+                  loc('test.json')]
 proj.file-type = 'shared'
 proj.main-file = loc('main.py')

@@ -4,3 +4,5 @@ opencv-python
 PySide2
 pyautogui
 mouse
+auto-py-to-exe
+keyboard

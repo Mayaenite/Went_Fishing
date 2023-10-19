@@ -9,10 +9,12 @@ import glob
 from PySide2.QtWidgets import *
 from PySide2.QtGui import *
 from PySide2.QtUiTools import QUiLoader
-from PySide2.QtCore import QFile,QIODevice,QSize
+from PySide2.QtCore import QFile,QIODevice,QSize,Slot,Signal
+import rc_icons
 import mouse
+import keyboard
 UI_LOADER = QUiLoader()
-	
+_this_dir = os.path.dirname(__file__).replace("\\","/")
 ########################################################################
 class Point:
 
@@ -161,13 +163,13 @@ def Capture_Screen_Section(top,left,width,height,save_to_file=False):
 		return sct_img
 	
 #----------------------------------------------------------------------
-def Capture_Screen(monitor=1):
+def Capture_Screen(monitor=1,flags=cv2.COLOR_RGB2RGBA):
 	""""""
 	sct = mss.mss()
 	mon = Get_Monitor(monitor)
 	screen_shot = sct.grab(mon)
 	screen_shot = numpy.asanyarray(screen_shot)
-	screen_shot = cv2.cvtColor(screen_shot, cv2.COLOR_RGB2RGBA)
+	screen_shot = cv2.cvtColor(screen_shot, flags)
 	return screen_shot
 
 #----------------------------------------------------------------------
@@ -192,7 +194,8 @@ def Load_Bloxburg_Auto_Fishing_UI():
 	global UI_LOADER
 
 	current_dir = os.path.dirname(__file__)
-	file_ui = os.path.join(current_dir,"UI_Files\\Bloxburg_Fishing.ui")
+	file_ui = list(glob.glob(f"{current_dir}/**/Bloxburg_Fishing.ui"))[0]
+	#file_ui = os.path.join(current_dir,"UI_Files\\Bloxburg_Fishing.ui")
 	widget = Build_Widget_From_Ui_File(file_ui, UI_LOADER)
 	isinstance(widget,QWidget)
 	return widget
@@ -202,7 +205,7 @@ def Load_Bloxburg_Auto_Fishing_UI():
 def get_bobber_Tops():
 	""""""
 	res = []
-	for img in glob.glob("Tracking_Images\Ball_*"):
+	for img in glob.glob(f"{_this_dir}/**/Ball_*.png"):
 		res.append(Create_CV2_Image(img))
 	return res
 
@@ -243,15 +246,23 @@ class Main_Window(QWidget):
 			self.ui_widget.Show_Tracker_Button.clicked.connect(self.start_stop_Tracking_Window_Timer)
 			self.ui_widget.Mouse_Location_Setup_Button.clicked.connect(self._Setup_Mouse_Location_Selection)
 			self.ui_widget.Set_Cast_Pull_Location_Button.clicked.connect(self._Set_Cast_Pull_Location)
+			self.ui_widget.Window_Size_comboBox.currentIndexChanged[str].connect(self._Update_On_Window_Size_comboBox_Changed)
 			
-		super(Main_Window,self).__init__(parent)
+		def show_tracker_button_hot_key_callback(keyevent):
+			if self.ui_widget.Show_Tracker_Button.isEnabled():
+				self.ui_widget.Show_Tracker_Button.click()
+		def start_stop_fishing_hot_key_callback(keyevent):
+			if self.ui_widget.Start_Fishing_Button.isEnabled():
+				self.ui_widget.Start_Fishing_Button.click()
 		
+		super(Main_Window,self).__init__(parent)
 		self.setWindowFlags(Qt.WindowStaysOnTopHint)
 		self.layout = QVBoxLayout()
 		self.ui_widget = Load_Bloxburg_Auto_Fishing_UI()
-		
-		self.start_fishing_shortcut = QShortcut(QKeySequence(self.tr("Ctrl+Shift+Alt+S", "File|Open")),self)		
-		self.start_fishing_shortcut.activated.connect(self.start_stop_Fishing_Timer)
+		keyboard.on_press_key("F5", show_tracker_button_hot_key_callback, suppress=False)
+		keyboard.on_press_key("F4", start_stop_fishing_hot_key_callback, suppress=False)
+		#self.start_fishing_shortcut = QShortcut(QKeySequence(self.tr("`", "Test")),self)		
+		#self.start_fishing_shortcut.activated.connect(self.start_stop_Tracking_Window_Timer)
 		
 		self.layout.addWidget(self.ui_widget)
 		self.setLayout(self.layout)
@@ -266,7 +277,12 @@ class Main_Window(QWidget):
 		self._update_tracker_window_timer = None
 		self.first_run = True
 		self.bobber_tops = get_bobber_Tops()
-		self.pushButton_icon = Create_CV2_Image("Tracking_Images/Pull_Button.jpg")
+		
+		img = list(glob.glob(f"{_this_dir}/**/Pull_Button.jpg"))[0]
+		self.Pull_Button_icon = Create_CV2_Image(img)
+		
+		img = list(glob.glob(f"{_this_dir}/**/Cast_Button.png"))[0]
+		self.Cast_Button_icon = Create_CV2_Image(img)
 		
 		Setup_Connections()
 		Build_Area_Rectangle()
@@ -274,6 +290,19 @@ class Main_Window(QWidget):
 		self.addAction(self.ui_widget.actionPause_Tracking)
 		self.addAction(self.ui_widget.actionShow_Tracker)
 		self.addAction(self.ui_widget.actionHide_Tracker)
+	#----------------------------------------------------------------------
+	@Slot(str)
+	def _Update_On_Window_Size_comboBox_Changed(self,val):
+		""""""
+		wh =  int(val)
+		geo = self.geometry()
+		geo.setWidth(wh)
+		geo.setHeight(wh)
+		self.setGeometry(geo)
+		self.ui_widget.setGeometry(geo)
+		self.setMaximumSize(wh, wh)
+		self.setMinimumSize(wh, wh)
+		self.resize(wh, wh)
 	#----------------------------------------------------------------------
 	def _Update_Rect_On_Slider_Changed(self):
 		""""""
@@ -304,6 +333,7 @@ class Main_Window(QWidget):
 		else:
 			self.pos_B = pyautogui.position()
 			mouse.unhook_all()
+			
 			rect = Rect(self.pos_A,self.pos_B)
 			self.Set_Rect_Slider_Locations(rect)
 			
@@ -321,6 +351,7 @@ class Main_Window(QWidget):
 		def set_location():
 			self._cast_pull_button_location = pyautogui.position()
 			mouse.unhook_all()
+			self.ui_widget.Start_Fishing_Button.setEnabled(True)
 		self.mouse_callback = mouse.on_click(set_location)
 		
 	#----------------------------------------------------------------------
@@ -332,8 +363,8 @@ class Main_Window(QWidget):
 	def Take_Screen_Shot(self):
 		""""""
 		self.Update_Sreen_Shot()
-		cv2.imwrite("Screen_Shots/screen_grab_with_rec.jpg",self.screen_shot_image)
-		pixmap = QPixmap("Screen_Shots/screen_grab_with_rec.jpg")
+		cv2.imwrite(f"{_this_dir}/Screen_Shots/screen_grab_with_rec.jpg",self.screen_shot_image)
+		pixmap = QPixmap(f"{_this_dir}/Screen_Shots/screen_grab_with_rec.jpg")
 		image = pixmap.toImage()
 		geo = self.ui_widget.Screen_Shot_Image.geometry()	
 		size = QSize(geo.width(), geo.height())
@@ -359,20 +390,16 @@ class Main_Window(QWidget):
 	def start_stop_Fishing_Timer(self):
 		""""""
 		if self._check_for_fish_timer == None:
-			self._cast_fishing_pole()
+			#self._cast_fishing_pole()
 			self._check_for_fish_timer = self.startTimer(300)
 			self.ui_widget.Start_Fishing_Button.setText("Stop Fishing")
 			self.ui_widget.Show_Tracker_Button.setEnabled(False)
-			
-			#self.ui_widget.Mouse_Controls_frame.setHidden(True)
-			#self.ui_widget.Viewing_Area_widget.setHidden(True)
 		else:
 			self.killTimer(self._check_for_fish_timer)
 			self._check_for_fish_timer = None
 			self.ui_widget.Start_Fishing_Button.setText("Start Fishing")
 			self.ui_widget.Show_Tracker_Button.setEnabled(True)
-			#self.ui_widget.Mouse_Controls_frame.setHidden(True)
-			#self.ui_widget.Viewing_Area_widget.setHidden(True)
+			
 	#----------------------------------------------------------------------
 	def start_stop_Tracking_Window_Timer(self):
 		""""""
@@ -423,20 +450,23 @@ class Main_Window(QWidget):
 	#----------------------------------------------------------------------
 	def _pick_up_fish(self):
 		""""""
-		self.Move_to_cast_pull_button() # Move the mouse to XY coordinates.
-		pyautogui.doubleClick()
-		self.Move_to_cast_pull_button() 
-		pyautogui.doubleClick()
+		print("Picking Up Fish")
+		if not self.ui_widget.Start_Fishing_Button.text() == "Start Fishing":
+			self.Move_to_cast_pull_button() # Move the mouse to XY coordinates.
+			pyautogui.doubleClick()
+			self.Move_to_cast_pull_button() 
+			pyautogui.doubleClick()
 		self.start_Proccess_Fish_Timer()
 	#----------------------------------------------------------------------
 	def _cast_fishing_pole(self):
 		""""""
 		if not self._is_proccessing_fish:
-			print("Casting Pole")
-			self.Move_to_cast_pull_button() # Move the mouse to XY coordinates.
-			pyautogui.doubleClick()
-			self.Move_to_cast_pull_button() 
-			pyautogui.doubleClick()
+			if not self.ui_widget.Start_Fishing_Button.text() == "Start Fishing":
+				print("Casting Pole")
+				self.Move_to_cast_pull_button() # Move the mouse to XY coordinates.
+				pyautogui.doubleClick()
+				self.Move_to_cast_pull_button() 
+				pyautogui.doubleClick()
 			self.start_Casting_Fishing_Pole_Timer()
 		
 	#----------------------------------------------------------------------
@@ -455,14 +485,14 @@ class Main_Window(QWidget):
 			return event.timerId() == self._update_tracker_window_timer
 		
 		if is_proccessing_fish(event):
-			#print("Finished Picking Up Fish")
+			print("Finished Picking Up Fish")
 			self._is_proccessing_fish = False
 			self.killTimer(self._proccess_fish_timer)
 			self._proccess_fish_timer = None
 			self._cast_fishing_pole()
 			
 		elif is_casting_poll(event):
-			#print("Finished Casting Pole")
+			print("Finished Casting Pole")
 			self._is_casting_pole = False
 			self.killTimer(self._casting_pole_timer)
 			self._casting_pole_timer = None
@@ -473,48 +503,41 @@ class Main_Window(QWidget):
 			enhanced_screen_image    = self._do_Image_Enhancments(screen_image)
 			best_loc,best_val,bobber = self._find_Best_Match(enhanced_screen_image)
 			if best_val is not None:
-				#self.ui_widget.Match_Max_Value.setText('{:1.4f}'.format(best_val))
 				self.ui_widget.Match_Value.setValue(best_val)
 			
 			if not self._is_proccessing_fish and not self._is_casting_pole:
 				if best_val <= self.ui_widget.Threshhold_Value.value():
-					self._pick_up_fish()
+					if not self.ui_widget.Start_Fishing_Button.text() == "Start Fishing":
+						self._pick_up_fish()
 			
 		elif is_time_to_update_tracker_window(event):
 			
 			screen_image             = Capture_Screen_Section(self.rect.top, self.rect.left, self.rect.width, self.rect.height,save_to_file=False)
+			
 			enhanced_screen_image    = self._do_Image_Enhancments(screen_image)
 			best_loc,best_val,bobber = self._find_Best_Match(enhanced_screen_image)
 			if best_val is not None:
-				#self.ui_widget.Match_Max_Value.setText('{:1.4f}'.format(best_val))
 				self.ui_widget.Match_Value.setValue(best_val)
+			if bobber is not None:
+				w  = bobber.shape[1]
+				h  = bobber.shape[0]
 				
-			w  = bobber.shape[1]
-			h  = bobber.shape[0]
-			
-			res = cv2.rectangle(enhanced_screen_image, best_loc, (best_loc[0] + w, best_loc[1] + h) ,(0,255,255), thickness=2)
-			if self.ui_widget.Match_Value.value() < self.ui_widget.Threshhold_Value.value():
-				self.ui_widget.Pickup_Threshold_frame.setStyleSheet('background-color: rgb(255, 0, 0);\nfont: 75 8pt "MS Shell Dlg 2";\ncolor: rgb(0, 0, 0);')
-			else:
-				self.ui_widget.Pickup_Threshold_frame.setStyleSheet('')
-			self.show_To_Tracker_Display(res)
-			#if not self.ui_widget.Pause_Tracker_checkBox.isChecked():
-				#if self.first_run:
-					#self.first_run = False
-					#self._cast_fishing_pole()
-				#else:
-					#if not self._is_proccessing_fish and not self._is_casting_pole:
-						#if best_val <= self.ui_widget.Threshhold_Value.value():
-							#self._pick_up_fish()
+				res = cv2.rectangle(enhanced_screen_image, best_loc, (best_loc[0] + w, best_loc[1] + h) ,(0,255,255), thickness=2)
+				if self.ui_widget.Match_Value.value() < self.ui_widget.Threshhold_Value.value():
+					self.ui_widget.Pickup_Threshold_frame.setStyleSheet('background-color: rgb(255, 0, 0);\nfont: 75 8pt "MS Shell Dlg 2";\ncolor: rgb(0, 0, 0);')
+				else:
+					self.ui_widget.Pickup_Threshold_frame.setStyleSheet('')
+				self.show_To_Tracker_Display(res)
 			
 	#----------------------------------------------------------------------
 	def Creat_Tracker_Window(self):
 		""""""
 		cv2.namedWindow("Tracker Display")
+		cv2.setWindowProperty("Tracker Display", cv2.WND_PROP_TOPMOST, 1)
 	#----------------------------------------------------------------------
 	def show_To_Tracker_Display(self,image):
 		""""""
-		cv2.imshow("Tracker Display", image)	
+		cv2.imshow("Tracker Display", image)
 
 #img = cv2.imread(r'd:\Wing_Projects\Learning_Image_Recognition\Test_Images\Bobber_Top.jpg')
 #cv2.imshow('My Image', img)
@@ -524,14 +547,6 @@ class Main_Window(QWidget):
 	#if k == 27:
 		#cv2.destroyAllWindows()
 		#break
-#----------------------------------------------------------------------
-def show_To_Window(image):
-	""""""
-	if isinstance(image,str):
-		image = Create_CV2_Image(image)
-	cv2.imshow("Result", image)
-	cv2.waitKey()
-	cv2.destroyAllWindows()
 
 if __name__ == '__main__':
 	mon = Get_Monitor(1)
@@ -543,10 +558,13 @@ if __name__ == '__main__':
 	app = QApplication(sys.argv)
 	mainWin = Main_Window()
 	geo = mainWin.geometry()
-	
-	geo.setWidth(w)
-	geo.setHeight(h)
+	wh =  int(mainWin.ui_widget.Window_Size_comboBox.currentText())
+	geo.setWidth(wh)
+	geo.setHeight(wh)
 	mainWin.setGeometry(geo)
+	mainWin.ui_widget.setGeometry(geo)
+	mainWin.setMaximumSize(wh, wh)
+	mainWin.setMinimumSize(wh, wh)
 	
 	mainWin.setWindowTitle("Mayaenite's Gone Fishing")
 	
